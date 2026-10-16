@@ -232,11 +232,20 @@ export const ArtistDetailsView: React.FC<ArtistDetailsViewProps> = ({
                 key={tr.id}
                 track={tr}
                 isPlaying={isPlaying && activeTrackId === tr.id}
-                onTogglePlay={() => onTogglePlay(tr)}
-                onOrderClick={() => onOrderTrack(tr)}
-                onSelectTrack={() => onSelectTrack(tr)}
+                onTogglePlay={(e) => {
+                  e.stopPropagation();
+                  onTogglePlay(tr);
+                }}
+                onOrderClick={(e) => {
+                  e.stopPropagation();
+                  onOrderTrack(tr);
+                }}
+                onOpenDetails={() => onSelectTrack(tr)}
                 isFavorite={favorites.includes(tr.id)}
-                onToggleFavorite={() => onToggleFavorite(tr.id)}
+                onToggleFavorite={(e) => {
+                  e.stopPropagation();
+                  onToggleFavorite(tr.id);
+                }}
                 theme={theme}
               />
             ))}

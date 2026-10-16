@@ -520,6 +520,87 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       )}
 
+      {/* Tab: Categories Management (إدارة التصنيفات) */}
+      {activeTab === 'categories' && (
+        <div className="space-y-6">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-5 rounded-2xl bg-white/5 border border-white/10">
+            <div>
+              <h3 className="font-bold text-lg flex items-center gap-2">
+                <Layers className="w-5 h-5 text-[#D4AF37]" />
+                <span>تصنيفات المنصة والأقسام الصوتية</span>
+              </h3>
+              <p className="text-xs text-gray-400 mt-1">
+                إدارة أقسام الزفات والشيلات، وتحديد أغلفة الأقسام من ملفاتك المحلية أو معرض الاستوديو
+              </p>
+            </div>
+            <button
+              onClick={() => setIsAddCategoryModalOpen(true)}
+              className="px-4 py-2.5 rounded-xl bg-[#D4AF37] hover:bg-[#c29f2f] text-black font-bold text-xs sm:text-sm cursor-pointer shadow-md transition-all flex items-center gap-1.5"
+            >
+              <FolderPlus className="w-4 h-4" />
+              <span>إضافة تصنيف جديد</span>
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {categories.map((cat) => {
+              const catTracksCount = tracks.filter((t) => t.categoryId === cat.id).length;
+              const isDefaultSystemCategory = ['zaffat-bride', 'zaffat-dufoof', 'sheilat-enthusiastic', 'welcoming', 'babies'].includes(cat.id);
+
+              return (
+                <div
+                  key={cat.id}
+                  className={`group relative rounded-3xl border overflow-hidden flex flex-col justify-between transition-all duration-300 ${
+                    isDark ? 'bg-[#16161C] border-white/10 hover:border-[#D4AF37]/50' : 'bg-white border-black/10 hover:border-[#B89728]/50 shadow-sm'
+                  }`}
+                >
+                  <div className="relative aspect-video w-full overflow-hidden">
+                    <img
+                      src={cat.image}
+                      alt={cat.name}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent" />
+                    <span className="absolute top-3 right-3 px-3 py-1 rounded-full text-xs font-bold bg-black/60 backdrop-blur-md text-[#D4AF37] border border-[#D4AF37]/30">
+                      {catTracksCount} عمل صوتي
+                    </span>
+                    <h4 className="absolute bottom-3 right-3 text-lg font-bold text-white">
+                      {cat.name}
+                    </h4>
+                  </div>
+
+                  <div className="p-5 flex-1 flex flex-col justify-between">
+                    <p className="text-xs text-gray-400 line-clamp-2 leading-relaxed mb-4">
+                      {cat.description}
+                    </p>
+
+                    <div className="pt-3 border-t border-white/5 flex items-center justify-between text-xs">
+                      <span className="text-[11px] font-mono text-gray-500">ID: {cat.id}</span>
+                      {!isDefaultSystemCategory ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (confirm(`هل أنت متأكد من حذف تصنيف "${cat.name}"؟`)) {
+                              onDeleteCategory(cat.id);
+                            }
+                          }}
+                          className="px-2.5 py-1 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 text-xs font-semibold cursor-pointer flex items-center gap-1 transition-all"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>حذف التصنيف</span>
+                        </button>
+                      ) : (
+                        <span className="text-[10px] text-gray-500">تصنيف أساسي</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Tab 2: WhatsApp Order Logs matching Screenshot 1 & 3 */}
       {activeTab === 'orders' && (
         <div
@@ -926,11 +1007,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       isDark ? 'bg-[#16161C] border-white/10 text-white' : 'bg-gray-50 border-black/10 text-black'
                     }`}
                   >
-                    <option value="zaffat-bride">زفات عروس</option>
-                    <option value="zaffat-dufoof">زفات الدفوف</option>
-                    <option value="sheilat-enthusiastic">شيلات حماسية</option>
-                    <option value="welcoming">ترحيبية</option>
-                    <option value="babies">مواليد</option>
+                    {categories.map((cat) => (
+                      <option key={cat.id} value={cat.id}>
+                        {cat.name}
+                      </option>
+                    ))}
                   </select>
                 </div>
 
@@ -951,15 +1032,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-semibold mb-1">رابط صورة الغلاف (اختياري)</label>
-                <input
-                  type="url"
-                  value={newCoverUrl}
-                  onChange={(e) => setNewCoverUrl(e.target.value)}
-                  placeholder="https://..."
-                  className={`w-full px-3 py-2 text-sm rounded-xl border outline-none ${
-                    isDark ? 'bg-black/40 border-white/10 text-white' : 'bg-gray-50 border-black/10 text-black'
-                  }`}
+                <ImageUploader
+                  currentImage={newCoverUrl}
+                  onSelectImage={setNewCoverUrl}
+                  theme={theme}
+                  label="صورة غلاف العمل (رفع ملف محلي أو اختيار من المعرض)"
+                  recommendedAspect="موصى به: 800×800 بكسل"
                 />
               </div>
 
@@ -1064,6 +1142,82 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               >
                 حفظ وإضافة العمل
               </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Add New Category (إضافة تصنيف جديد) */}
+      {isAddCategoryModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div onClick={() => setIsAddCategoryModalOpen(false)} className="fixed inset-0 bg-black/75 backdrop-blur-sm" />
+
+          <div
+            className={`relative w-full max-w-lg rounded-3xl border p-6 sm:p-8 z-10 shadow-2xl ${
+              isDark ? 'bg-[#16161C] border-white/10 text-white' : 'bg-white border-black/10 text-black'
+            }`}
+          >
+            <div className="flex items-center justify-between pb-4 border-b border-white/10 mb-5">
+              <div className="flex items-center gap-2">
+                <FolderPlus className="w-5 h-5 text-[#D4AF37]" />
+                <h3 className="font-bold text-lg">إضافة تصنيف صوتي جديد</h3>
+              </div>
+              <button
+                onClick={() => setIsAddCategoryModalOpen(false)}
+                aria-label="إغلاق النافذة"
+                className="p-1.5 rounded-lg hover:bg-white/10 text-gray-400 hover:text-white cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateCategory} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold mb-1">اسم التصنيف (مثل: زفات ملكة، تخرج، استقبال VIP)</label>
+                <input
+                  type="text"
+                  required
+                  value={newCatName}
+                  onChange={(e) => setNewCatName(e.target.value)}
+                  placeholder="مثال: زفات استقبال ملكية"
+                  className={`w-full px-3 py-2 text-sm rounded-xl border outline-none ${
+                    isDark ? 'bg-black/40 border-white/10 text-white' : 'bg-gray-50 border-black/10 text-black'
+                  }`}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold mb-1">وصف موجز للتصنيف</label>
+                <textarea
+                  rows={2}
+                  value={newCatDescription}
+                  onChange={(e) => setNewCatDescription(e.target.value)}
+                  placeholder="وصف تسويقي للتصنيف يظهر في الصفحة الرئيسية وصفحة الكتالوج..."
+                  className={`w-full px-3 py-2 text-xs rounded-xl border outline-none resize-none ${
+                    isDark ? 'bg-black/40 border-white/10 text-white' : 'bg-gray-50 border-black/10 text-black'
+                  }`}
+                />
+              </div>
+
+              <div>
+                <ImageUploader
+                  currentImage={newCatImage}
+                  onSelectImage={setNewCatImage}
+                  theme={theme}
+                  label="صورة غلاف التصنيف (رفع ملف محلي أو اختيار من المعرض)"
+                  recommendedAspect="موصى به: 800×600 بكسل"
+                />
+              </div>
+
+              <div className="pt-2">
+                <button
+                  type="submit"
+                  className="w-full py-3 rounded-xl bg-[#D4AF37] hover:bg-[#c29f2f] text-black font-bold text-sm shadow-lg cursor-pointer transition-all flex items-center justify-center gap-2"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>حفظ وإضافة التصنيف</span>
+                </button>
+              </div>
             </form>
           </div>
         </div>

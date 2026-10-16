@@ -1,5 +1,5 @@
 import React from 'react';
-import { Home, Music, Heart, MessageCircle } from 'lucide-react';
+import { Home, Music, Heart, MessageCircle, Users } from 'lucide-react';
 import { AppView, ThemeMode } from '../types/index.ts';
 
 interface MobileBottomNavProps {
@@ -44,7 +44,17 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
         }`}
       >
         <Music className="w-5 h-5" />
-        <span className="text-[10px]">جميع الأعمال</span>
+        <span className="text-[10px]">الأعمال</span>
+      </button>
+
+      <button
+        onClick={() => onNavigate('artists')}
+        className={`flex flex-col items-center justify-center flex-1 h-full gap-1 cursor-pointer transition-colors ${
+          currentView === 'artists' || currentView === 'artist-details' ? 'text-[#D4AF37] font-bold' : 'hover:text-white'
+        }`}
+      >
+        <Users className="w-5 h-5" />
+        <span className="text-[10px]">الفنانون</span>
       </button>
 
       <button

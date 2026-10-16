@@ -4,9 +4,10 @@ import {
   INITIAL_CATEGORIES, 
   INITIAL_ORDERS, 
   INITIAL_KPI,
+  INITIAL_ARTISTS,
   STUDIO_WHATSAPP_NUMBER 
 } from './data/mockData.ts';
-import { Track, CategoryId, RhythmType, ThemeMode, AppView, OrderRequest, KPIData } from './types/index.ts';
+import { Track, CategoryId, RhythmType, ThemeMode, AppView, OrderRequest, KPIData, Category, Artist } from './types/index.ts';
 import { audioEngine } from './services/audioEngine.ts';
 import { filterTracks, calculateConversionRate, generateWhatsAppUrl } from './utils/trackLogic.ts';
 import { Header } from './components/Header.tsx';
@@ -20,6 +21,8 @@ import { AdminDashboard } from './components/AdminDashboard.tsx';
 import { SearchModal } from './components/SearchModal.tsx';
 import { MobileBottomNav } from './components/MobileBottomNav.tsx';
 import { AiConciergeModal } from './components/AiConciergeModal.tsx';
+import { ArtistsSection } from './components/ArtistsSection.tsx';
+import { ArtistDetailsView } from './components/ArtistDetailsView.tsx';
 import { 
   Sparkles, 
   MessageCircle, 
@@ -44,7 +47,23 @@ export default function App() {
   const [currentView, setCurrentView] = useState<AppView>('home');
   const [selectedTrack, setSelectedTrack] = useState<Track | null>(INITIAL_TRACKS[0]);
   const [tracks, setTracks] = useState<Track[]>(INITIAL_TRACKS);
-  const [categories] = useState(INITIAL_CATEGORIES);
+  const [categories, setCategories] = useState<Category[]>(() => {
+    try {
+      const saved = localStorage.getItem('orchest_categories');
+      return saved ? JSON.parse(saved) : INITIAL_CATEGORIES;
+    } catch {
+      return INITIAL_CATEGORIES;
+    }
+  });
+  const [artists] = useState<Artist[]>(() => {
+    try {
+      const saved = localStorage.getItem('orchest_artists');
+      return saved ? JSON.parse(saved) : INITIAL_ARTISTS;
+    } catch {
+      return INITIAL_ARTISTS;
+    }
+  });
+  const [selectedArtist, setSelectedArtist] = useState<Artist | null>(INITIAL_ARTISTS[0]);
   const [orders, setOrders] = useState<OrderRequest[]>(INITIAL_ORDERS);
   const [kpi, setKpi] = useState<KPIData>(INITIAL_KPI);
   const [whatsappNumber, setWhatsappNumber] = useState<string>(() => {
@@ -54,6 +73,28 @@ export default function App() {
   const handleUpdateWhatsAppNumber = (newNumber: string) => {
     setWhatsappNumber(newNumber);
     localStorage.setItem('orchest_whatsapp', newNumber);
+  };
+
+  const handleAddCategory = (newCategory: Category) => {
+    setCategories((prev) => {
+      const updated = [...prev, newCategory];
+      localStorage.setItem('orchest_categories', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const handleDeleteCategory = (categoryId: string) => {
+    setCategories((prev) => {
+      const updated = prev.filter((c) => c.id !== categoryId);
+      localStorage.setItem('orchest_categories', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const handleSelectArtist = (artist: Artist) => {
+    setSelectedArtist(artist);
+    setCurrentView('artist-details');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   // Filters
@@ -299,6 +340,17 @@ export default function App() {
                 ))}
               </div>
             </section>
+
+            {/* Artists Showcase Section (فنانو أوركست) */}
+            <ArtistsSection
+              artists={artists}
+              onSelectArtist={handleSelectArtist}
+              theme={theme}
+              onViewAll={() => {
+                setCurrentView('artists');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+            />
 
             {/* Studio Features / Value Proposition */}
             <section className={`py-14 border-y ${isDark ? 'bg-[#16161C]/50 border-white/5' : 'bg-white border-black/5'}`}>
@@ -550,7 +602,44 @@ export default function App() {
           </div>
         )}
 
-        {/* VIEW 5: ADMIN DASHBOARD */}
+        {/* VIEW 5: ARTISTS CATALOG (جميع الفنانين) */}
+        {currentView === 'artists' && (
+          <div className="py-8 animate-fade-in">
+            <ArtistsSection
+              artists={artists}
+              onSelectArtist={handleSelectArtist}
+              theme={theme}
+              isStandalone={true}
+            />
+          </div>
+        )}
+
+        {/* VIEW 6: ARTIST DETAILS VIEW (صفحة أعمال الفنان) */}
+        {currentView === 'artist-details' && selectedArtist && (
+          <ArtistDetailsView
+            artist={selectedArtist}
+            tracks={tracks}
+            onBack={() => {
+              setCurrentView('artists');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            onSelectTrack={(t) => {
+              setSelectedTrack(t);
+              setCurrentView('track-details');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            onTogglePlay={handleTogglePlay}
+            onOrderTrack={(t) => openOrderModalForTrack(t)}
+            activeTrackId={selectedTrack?.id || null}
+            isPlaying={audioState.isPlaying}
+            theme={theme}
+            favorites={favorites}
+            onToggleFavorite={toggleFavorite}
+            whatsappNumber={whatsappNumber}
+          />
+        )}
+
+        {/* VIEW 7: ADMIN DASHBOARD */}
         {currentView === 'admin' && (
           <AdminDashboard
             tracks={tracks}
@@ -562,6 +651,8 @@ export default function App() {
             onAddTrack={handleAddTrack}
             onDeleteTrack={handleDeleteTrack}
             onToggleTrend={handleToggleTrend}
+            onAddCategory={handleAddCategory}
+            onDeleteCategory={handleDeleteCategory}
             theme={theme}
             onBackToStore={() => setCurrentView('home')}
           />

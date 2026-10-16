@@ -39,6 +39,7 @@ export const Header: React.FC<HeaderProps> = ({
   const navLinks = [
     { label: 'الرئيسية', view: 'home' as AppView },
     { label: 'جميع الأعمال', view: 'catalog' as AppView },
+    { label: 'فنانو أوركست', view: 'artists' as AppView },
     { label: 'زفات عروس', view: 'catalog' as AppView, categoryId: 'zaffat-bride' },
     { label: 'شيلات ترحيبية', view: 'catalog' as AppView, categoryId: 'welcoming' },
     { label: 'لوحة التحكم', view: 'admin' as AppView },
