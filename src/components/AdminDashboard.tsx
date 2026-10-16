@@ -50,6 +50,8 @@ interface AdminDashboardProps {
   onAddCategory: (newCategory: Category) => void;
   onDeleteCategory: (categoryId: string) => void;
   theme: ThemeMode;
+  csrfToken: string;
+  onLogout: () => void;
   onBackToStore: () => void;
 }
 
@@ -66,6 +68,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onAddCategory,
   onDeleteCategory,
   theme,
+  csrfToken,
+  onLogout,
   onBackToStore,
 }) => {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -273,6 +277,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           >
             <Plus className="w-4 h-4" />
             <span>إضافة عمل جديد</span>
+          </button>
+          <button
+            onClick={onLogout}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold text-red-300 border border-red-400/30 hover:bg-red-500/10 cursor-pointer"
+          >
+            <span>تسجيل الخروج</span>
           </button>
         </div>
       </div>
@@ -1069,7 +1079,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       try {
                         const res = await fetch('/api/ai/generate-seo', {
                           method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
+                          credentials: 'include',
+                          headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRF-Token': csrfToken,
+                          },
                           body: JSON.stringify({
                             title: newTitle,
                             artist: newArtist,

@@ -1,6 +1,7 @@
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { pbkdf2Sync, randomBytes, timingSafeEqual } from 'crypto';
 import dotenv from 'dotenv';
 import { GoogleGenAI, Type } from '@google/genai';
 
@@ -47,6 +48,88 @@ const requestWindows = new Map<string, { count: number; resetAt: number }>();
 const RATE_LIMIT = 20;
 const RATE_WINDOW_MS = 60_000;
 
+interface AdminSession {
+  csrfToken: string;
+  expiresAt: number;
+}
+
+const adminSessions = new Map<string, AdminSession>();
+const SESSION_COOKIE = 'orchest_admin_session';
+const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
+const PASSWORD_ITERATIONS = 210_000;
+
+function parseCookies(header: string | undefined): Record<string, string> {
+  if (!header) return {};
+  return Object.fromEntries(header.split(';').flatMap((part) => {
+    const separator = part.indexOf('=');
+    if (separator < 0) return [];
+    try {
+      return [[part.slice(0, separator).trim(), decodeURIComponent(part.slice(separator + 1).trim())]];
+    } catch {
+      return [];
+    }
+  }));
+}
+
+function getAdminPasswordHash(): string | null {
+  const configured = process.env.ADMIN_PASSWORD_HASH?.trim();
+  return configured && configured.startsWith('pbkdf2$') ? configured : null;
+}
+
+function verifyAdminPassword(password: string): boolean {
+  const configured = getAdminPasswordHash();
+  if (!configured) return false;
+  const parts = configured.split('$');
+  if (parts.length !== 5 || parts[1] !== 'sha512') return false;
+  const iterations = Number(parts[2]);
+  if (!Number.isSafeInteger(iterations) || iterations < 100_000 || iterations > 1_000_000) return false;
+  try {
+    const expected = Buffer.from(parts[4], 'base64url');
+    const actual = pbkdf2Sync(password, parts[3], iterations, expected.length, 'sha512');
+    return expected.length === actual.length && timingSafeEqual(expected, actual);
+  } catch {
+    return false;
+  }
+}
+
+function setSessionCookie(res: express.Response, token: string): void {
+  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+  res.setHeader('Set-Cookie', `${SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${SESSION_TTL_MS / 1000}${secure}`);
+}
+
+function clearSessionCookie(res: express.Response): void {
+  res.setHeader('Set-Cookie', `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0`);
+}
+
+function getAdminSession(req: express.Request): AdminSession | null {
+  const token = parseCookies(req.headers.cookie)[SESSION_COOKIE];
+  if (!token) return null;
+  const session = adminSessions.get(token);
+  if (!session || session.expiresAt <= Date.now()) {
+    if (session) adminSessions.delete(token);
+    return null;
+  }
+  return session;
+}
+
+function requireAdmin(req: express.Request, res: express.Response): AdminSession | null {
+  const session = getAdminSession(req);
+  if (!session) {
+    res.status(401).json({ error: 'يلزم تسجيل دخول المدير' });
+    return null;
+  }
+  return session;
+}
+
+function requireCsrf(req: express.Request, res: express.Response, session: AdminSession): boolean {
+  const token = req.header('x-csrf-token');
+  if (!token || token.length !== session.csrfToken.length || !timingSafeEqual(Buffer.from(token), Buffer.from(session.csrfToken))) {
+    res.status(403).json({ error: 'رمز حماية الطلب غير صالح' });
+    return false;
+  }
+  return true;
+}
+
 function getClientIp(req: express.Request): string {
   return req.ip || req.socket.remoteAddress || 'unknown';
 }
@@ -90,6 +173,69 @@ function rejectRateLimited(req: express.Request, res: express.Response): boolean
   res.status(429).json({ error: 'طلبات كثيرة. يرجى المحاولة بعد قليل.' });
   return true;
 }
+
+const loginWindows = new Map<string, { count: number; resetAt: number }>();
+
+function rejectLoginRateLimited(req: express.Request, res: express.Response): boolean {
+  const now = Date.now();
+  const key = getClientIp(req);
+  const current = loginWindows.get(key);
+  if (!current || current.resetAt <= now) {
+    return false;
+  }
+  if (current.count < 5) return false;
+  res.status(429).json({ error: 'محاولات تسجيل دخول كثيرة. يرجى المحاولة بعد 15 دقيقة.' });
+  return true;
+}
+
+function recordLoginFailure(req: express.Request): void {
+  const now = Date.now();
+  const key = getClientIp(req);
+  const current = loginWindows.get(key);
+  if (!current || current.resetAt <= now) {
+    loginWindows.set(key, { count: 1, resetAt: now + 15 * 60_000 });
+    return;
+  }
+  current.count += 1;
+}
+
+app.post('/api/auth/login', (req, res) => {
+  if (rejectLoginRateLimited(req, res)) return;
+  const password = parseBoundedText(req.body?.password, 256);
+  if (!password || !verifyAdminPassword(password)) {
+    recordLoginFailure(req);
+    return res.status(401).json({ error: 'بيانات تسجيل الدخول غير صحيحة' });
+  }
+
+  for (const [token, session] of adminSessions) {
+    if (session.expiresAt <= Date.now()) adminSessions.delete(token);
+  }
+  if (adminSessions.size >= 1000) {
+    return res.status(503).json({ error: 'الخدمة مشغولة حالياً. يرجى المحاولة لاحقاً.' });
+  }
+
+  const sessionToken = randomBytes(32).toString('base64url');
+  const session: AdminSession = {
+    csrfToken: randomBytes(32).toString('base64url'),
+    expiresAt: Date.now() + SESSION_TTL_MS,
+  };
+  adminSessions.set(sessionToken, session);
+  setSessionCookie(res, sessionToken);
+  return res.json({ authenticated: true });
+});
+
+app.get('/api/auth/session', (req, res) => {
+  const session = getAdminSession(req);
+  if (!session) return res.json({ authenticated: false });
+  return res.json({ authenticated: true, csrfToken: session.csrfToken });
+});
+
+app.post('/api/auth/logout', (req, res) => {
+  const token = parseCookies(req.headers.cookie)[SESSION_COOKIE];
+  if (token) adminSessions.delete(token);
+  clearSessionCookie(res);
+  return res.json({ authenticated: false });
+});
 
 // Initialize Google GenAI client if key is provided
 const apiKey = process.env.GEMINI_API_KEY;
@@ -312,6 +458,8 @@ ${JSON.stringify(catalogSummary, null, 2)}`;
 // 2. AI SEO & Marketing Description Generator for Studio Owner
 app.post('/api/ai/generate-seo', async (req, res) => {
   try {
+    const session = requireAdmin(req, res);
+    if (!session || !requireCsrf(req, res, session)) return;
     if (rejectRateLimited(req, res)) return;
     const title = parseBoundedText(req.body?.title, 160);
     const artist = parseBoundedText(req.body?.artist, 120);

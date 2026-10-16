@@ -23,6 +23,7 @@ import { MobileBottomNav } from './components/MobileBottomNav.tsx';
 import { AiConciergeModal } from './components/AiConciergeModal.tsx';
 import { ArtistsSection } from './components/ArtistsSection.tsx';
 import { ArtistDetailsView } from './components/ArtistDetailsView.tsx';
+import { AdminLogin } from './components/AdminLogin.tsx';
 import { 
   Sparkles, 
   MessageCircle, 
@@ -45,6 +46,8 @@ export default function App() {
 
   // App navigation state
   const [currentView, setCurrentView] = useState<AppView>('home');
+  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
+  const [adminCsrfToken, setAdminCsrfToken] = useState<string | null>(null);
   const [selectedTrack, setSelectedTrack] = useState<Track | null>(INITIAL_TRACKS[0]);
   const [tracks, setTracks] = useState<Track[]>(INITIAL_TRACKS);
   const [categories, setCategories] = useState<Category[]>(() => {
@@ -120,6 +123,34 @@ export default function App() {
   const [orderModalTrack, setOrderModalTrack] = useState<Track>(INITIAL_TRACKS[0]);
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const [isAiConciergeOpen, setIsAiConciergeOpen] = useState(false);
+
+  const loadAdminSession = async () => {
+    try {
+      const response = await fetch('/api/auth/session', { credentials: 'include' });
+      const session: unknown = await response.json();
+      if (session && typeof session === 'object' && 'authenticated' in session && session.authenticated === true) {
+        const csrfToken = 'csrfToken' in session && typeof session.csrfToken === 'string' ? session.csrfToken : null;
+        setIsAdminAuthenticated(Boolean(csrfToken));
+        setAdminCsrfToken(csrfToken);
+        return;
+      }
+    } catch {
+      // Treat unavailable sessions as signed out.
+    }
+    setIsAdminAuthenticated(false);
+    setAdminCsrfToken(null);
+  };
+
+  useEffect(() => {
+    void loadAdminSession();
+  }, []);
+
+  const handleAdminLogout = async () => {
+    await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => undefined);
+    setIsAdminAuthenticated(false);
+    setAdminCsrfToken(null);
+    setCurrentView('home');
+  };
 
   // Sync theme to localStorage & body class
   useEffect(() => {
@@ -640,23 +671,33 @@ export default function App() {
         )}
 
         {/* VIEW 7: ADMIN DASHBOARD */}
-        {currentView === 'admin' && (
+        {currentView === 'admin' && (isAdminAuthenticated && adminCsrfToken ? (
           <AdminDashboard
-            tracks={tracks}
-            orders={orders}
-            categories={categories}
-            kpi={kpi}
-            whatsappNumber={whatsappNumber}
-            onUpdateWhatsAppNumber={handleUpdateWhatsAppNumber}
-            onAddTrack={handleAddTrack}
-            onDeleteTrack={handleDeleteTrack}
-            onToggleTrend={handleToggleTrend}
-            onAddCategory={handleAddCategory}
-            onDeleteCategory={handleDeleteCategory}
+              tracks={tracks}
+              orders={orders}
+              categories={categories}
+              kpi={kpi}
+              whatsappNumber={whatsappNumber}
+              onUpdateWhatsAppNumber={handleUpdateWhatsAppNumber}
+              onAddTrack={handleAddTrack}
+              onDeleteTrack={handleDeleteTrack}
+              onToggleTrend={handleToggleTrend}
+              onAddCategory={handleAddCategory}
+              onDeleteCategory={handleDeleteCategory}
+              theme={theme}
+              csrfToken={adminCsrfToken}
+              onLogout={handleAdminLogout}
+              onBackToStore={() => setCurrentView('home')}
+            />
+        ) : (
+          <AdminLogin
             theme={theme}
-            onBackToStore={() => setCurrentView('home')}
+            onAuthenticated={() => {
+              void loadAdminSession();
+            }}
+            onCancel={() => setCurrentView('home')}
           />
-        )}
+        ))}
       </main>
 
       {/* 2. Persistent Floating Sticky Audio Player */}
