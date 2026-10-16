@@ -27,6 +27,7 @@ export const OrderModal: React.FC<OrderModalProps> = ({
   const [notes, setNotes] = useState('');
   const [phone, setPhone] = useState('');
   const [showSuccess, setShowSuccess] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
@@ -41,9 +42,14 @@ export const OrderModal: React.FC<OrderModalProps> = ({
 
   const handleSendOrder = (e: React.FormEvent) => {
     e.preventDefault();
+    setSubmitError(null);
 
-    if (!clientNames.trim()) {
+    if (!clientNames.trim() || clientNames.trim().length > 120) {
       alert('يرجى كتابة أسماء العروسين أو صاحب المناسبة');
+      return;
+    }
+    if (notes.trim().length > 500) {
+      setSubmitError('الملاحظات طويلة جداً. الحد الأقصى 500 حرف.');
       return;
     }
 
@@ -61,23 +67,32 @@ export const OrderModal: React.FC<OrderModalProps> = ({
       status: 'جديد',
     };
 
-    // Save lead in system state
-    onSubmitOrder(orderRecord);
-
     // Build WhatsApp URL
     const message = generateWhatsAppMessage(track, {
       clientNames,
       modificationType,
       occasionDate,
       notes,
+      customPhone: phone,
     });
     const whatsappUrl = generateWhatsAppUrl(whatsappNumber, message);
+    if (!whatsappUrl) {
+      setSubmitError('رقم واتساب الاستوديو غير صالح حالياً. يرجى المحاولة لاحقاً.');
+      return;
+    }
+
+    // Open during the submit gesture; delayed window.open calls are often blocked.
+    const whatsappWindow = window.open('', '_blank', 'noopener,noreferrer');
+    if (!whatsappWindow) {
+      setSubmitError('تعذر فتح واتساب تلقائياً. يرجى السماح بالنوافذ المنبثقة ثم المحاولة مرة أخرى.');
+      return;
+    }
+    whatsappWindow.location.href = whatsappUrl;
+    onSubmitOrder(orderRecord);
 
     setShowSuccess(true);
 
-    // Redirect to WhatsApp
     setTimeout(() => {
-      window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
       onClose();
       setShowSuccess(false);
     }, 900);
@@ -285,6 +300,11 @@ export const OrderModal: React.FC<OrderModalProps> = ({
             <p className="text-center text-[11px] text-gray-400">
               سيتم نقلك مباشرة إلى واتساب الاستوديو مع حفظ طلبك في سجل الطلبات
             </p>
+            {submitError && (
+              <p role="alert" className="text-center text-xs text-red-400">
+                {submitError}
+              </p>
+            )}
           </form>
         )}
       </div>

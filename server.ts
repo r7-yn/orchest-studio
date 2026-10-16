@@ -12,7 +12,84 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '256kb' }));
+
+interface CatalogTrack {
+  id: string;
+  title: string;
+  artist: string;
+  rhythm: string;
+  categoryId: string;
+  categoryLabel: string;
+  code: string;
+  description: string;
+}
+
+interface SemanticSearchBody {
+  query: string;
+  tracks: CatalogTrack[];
+}
+
+interface SeoBody {
+  title: string;
+  artist: string;
+  category?: string;
+  rhythm?: string;
+  notes?: string;
+}
+
+interface ConciergeBody {
+  message: string;
+  tracks: CatalogTrack[];
+}
+
+const requestWindows = new Map<string, { count: number; resetAt: number }>();
+const RATE_LIMIT = 20;
+const RATE_WINDOW_MS = 60_000;
+
+function getClientIp(req: express.Request): string {
+  return req.ip || req.socket.remoteAddress || 'unknown';
+}
+
+function isRateLimited(req: express.Request): boolean {
+  const now = Date.now();
+  const key = getClientIp(req);
+  const current = requestWindows.get(key);
+  if (!current || current.resetAt <= now) {
+    requestWindows.set(key, { count: 1, resetAt: now + RATE_WINDOW_MS });
+    return false;
+  }
+  current.count += 1;
+  return current.count > RATE_LIMIT;
+}
+
+function readErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'unknown error';
+}
+
+function isCatalogTrack(value: unknown): value is CatalogTrack {
+  if (!value || typeof value !== 'object') return false;
+  const track = value as Record<string, unknown>;
+  return ['id', 'title', 'artist', 'rhythm', 'categoryId', 'categoryLabel', 'code', 'description']
+    .every((key) => typeof track[key] === 'string' && (track[key] as string).length <= 500);
+}
+
+function parseCatalogTracks(value: unknown): CatalogTrack[] {
+  if (!Array.isArray(value) || value.length > 500) return [];
+  return value.filter(isCatalogTrack);
+}
+
+function parseBoundedText(value: unknown, maxLength: number): string | null {
+  if (typeof value !== 'string') return null;
+  const text = value.trim();
+  return text.length > 0 && text.length <= maxLength ? text : null;
+}
+
+function rejectRateLimited(req: express.Request, res: express.Response): boolean {
+  if (!isRateLimited(req)) return false;
+  res.status(429).json({ error: 'طلبات كثيرة. يرجى المحاولة بعد قليل.' });
+  return true;
+}
 
 // Initialize Google GenAI client if key is provided
 const apiKey = process.env.GEMINI_API_KEY;
@@ -37,7 +114,7 @@ if (apiKey && apiKey !== 'MY_GEMINI_API_KEY') {
  * Intelligent Semantic Intent Analyzer & Matcher
  * Uses NLP rules, dialect normalization, and intent vectors
  */
-function analyzeSemanticIntentFallback(query: string, tracks: any[]) {
+function analyzeSemanticIntentFallback(query: string, tracks: CatalogTrack[]) {
   const cleanQ = query.toLowerCase().trim();
   let detectedIntent = 'طلب زفة خليجية مخصصة';
   const matches: Array<{ trackId: string; score: number; reason: string }> = [];
@@ -145,9 +222,11 @@ function analyzeSemanticIntentFallback(query: string, tracks: any[]) {
 // 1. Semantic Search API Endpoint (البحث الدلالي الذكي)
 app.post('/api/ai/semantic-search', async (req, res) => {
   try {
-    const { query, tracks } = req.body;
+    if (rejectRateLimited(req, res)) return;
+    const query = parseBoundedText(req.body?.query, 300);
+    const tracks = parseCatalogTracks(req.body?.tracks);
 
-    if (!query || typeof query !== 'string' || !query.trim()) {
+    if (!query) {
       return res.json({ matches: [], intentSummary: '' });
     }
 
@@ -158,7 +237,7 @@ app.post('/api/ai/semantic-search', async (req, res) => {
     // If Gemini client available, attempt LLM call with fallback
     if (aiClient) {
       try {
-        const catalogSummary = tracks.map((t: any) => ({
+          const catalogSummary = tracks.map((t: CatalogTrack) => ({
           id: t.id,
           title: t.title,
           artist: t.artist,
@@ -213,8 +292,8 @@ ${JSON.stringify(catalogSummary, null, 2)}`;
             intentSummary: parsed.detectedIntent || '',
           });
         }
-      } catch (geminiErr: any) {
-        console.warn('Gemini temporary API spike, falling back to intelligent semantic engine:', geminiErr?.message || geminiErr);
+      } catch (geminiErr: unknown) {
+        console.warn('Gemini temporary API spike, falling back to intelligent semantic engine:', readErrorMessage(geminiErr));
       }
     }
 
@@ -224,16 +303,21 @@ ${JSON.stringify(catalogSummary, null, 2)}`;
       matches: fallbackResult.matches,
       intentSummary: fallbackResult.detectedIntent,
     });
-  } catch (error: any) {
-    console.error('Semantic Search Critical Error:', error);
-    res.json({ matches: [], intentSummary: '' });
+  } catch (error: unknown) {
+    console.error('Semantic Search Critical Error:', readErrorMessage(error));
+    res.status(500).json({ error: 'تعذر تنفيذ البحث حالياً', matches: [], intentSummary: '' });
   }
 });
 
 // 2. AI SEO & Marketing Description Generator for Studio Owner
 app.post('/api/ai/generate-seo', async (req, res) => {
   try {
-    const { title, artist, category, rhythm, notes } = req.body;
+    if (rejectRateLimited(req, res)) return;
+    const title = parseBoundedText(req.body?.title, 160);
+    const artist = parseBoundedText(req.body?.artist, 120);
+    const category = parseBoundedText(req.body?.category, 120) || undefined;
+    const rhythm = parseBoundedText(req.body?.rhythm, 80) || undefined;
+    const notes = parseBoundedText(req.body?.notes, 500) || undefined;
 
     if (!title || !artist) {
       return res.status(400).json({ error: 'العنوان واسم المنشد مطلوبان' });
@@ -283,8 +367,8 @@ ${notes ? `- ملاحظات إضافية: "${notes}"` : ''}
         if (parsed.metaTitle) {
           return res.json(parsed);
         }
-      } catch (geminiErr: any) {
-        console.warn('Gemini SEO spike, using luxury template generator:', geminiErr?.message || geminiErr);
+      } catch (geminiErr: unknown) {
+        console.warn('Gemini SEO spike, using luxury template generator:', readErrorMessage(geminiErr));
       }
     }
 
@@ -304,26 +388,28 @@ ${notes ? `- ملاحظات إضافية: "${notes}"` : ''}
       ],
       targetAudience: 'حفلات الزفاف الملكية، العرسان والمناسبات الخليجية الكبرى',
     });
-  } catch (error: any) {
-    console.error('SEO Generator Error:', error);
-    res.status(500).json({ error: 'Failed to generate SEO description' });
+  } catch (error: unknown) {
+    console.error('SEO Generator Error:', readErrorMessage(error));
+    res.status(500).json({ error: 'تعذر توليد الوصف حالياً' });
   }
 });
 
 // 3. AI Concierge Chatbot for Customers ("اسأل مساعد أوركست")
 app.post('/api/ai/concierge', async (req, res) => {
   try {
-    const { message, tracks } = req.body;
+    if (rejectRateLimited(req, res)) return;
+    const message = parseBoundedText(req.body?.message, 500);
+    const tracks = parseCatalogTracks(req.body?.tracks);
 
-    if (!message || typeof message !== 'string') {
+    if (!message) {
       return res.status(400).json({ error: 'الرسالة مطلوبة' });
     }
 
-    const catalogList = Array.isArray(tracks) ? tracks : [];
+    const catalogList = tracks;
 
     if (aiClient) {
       try {
-        const catalogData = catalogList.map((t: any) => ({
+        const catalogData = catalogList.map((t: CatalogTrack) => ({
           id: t.id,
           title: t.title,
           artist: t.artist,
@@ -370,8 +456,8 @@ ${JSON.stringify(catalogData, null, 2)}`;
         if (parsed.reply && Array.isArray(parsed.recommendedTrackIds) && parsed.recommendedTrackIds.length > 0) {
           return res.json(parsed);
         }
-      } catch (geminiErr: any) {
-        console.warn('Gemini Concierge spike, using intelligent fallback concierge:', geminiErr?.message || geminiErr);
+      } catch (geminiErr: unknown) {
+        console.warn('Gemini Concierge spike, using intelligent fallback concierge:', readErrorMessage(geminiErr));
       }
     }
 
@@ -384,9 +470,9 @@ ${JSON.stringify(catalogData, null, 2)}`;
       recommendedTrackIds: topIds.length > 0 ? topIds : catalogList.slice(0, 3).map((t) => t.id),
       suggestedModification: 'تغيير أسماء العروسين مع إمكانية إضافة مقدمة شعرية خاصة بالأسماء',
     });
-  } catch (error: any) {
-    console.error('Concierge Error:', error);
-    res.status(500).json({ error: 'Failed to process concierge chat' });
+  } catch (error: unknown) {
+    console.error('Concierge Error:', readErrorMessage(error));
+    res.status(500).json({ error: 'تعذر تشغيل المساعد حالياً' });
   }
 });
 

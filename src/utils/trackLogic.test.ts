@@ -1,13 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { 
-  formatDuration, 
+  formatDuration,
+  parseDuration,
   formatNumberK, 
   calculateConversionRate, 
   generateWhatsAppMessage, 
   filterTracks,
   validateWhatsAppNumber,
-  exportOrdersToCSV
+  exportOrdersToCSV,
+  generateWhatsAppUrl
 } from './trackLogic.ts';
 import type { Track } from '../types/index.ts';
 
@@ -37,6 +39,13 @@ test('formatDuration converts seconds to MM:SS correctly', () => {
   assert.equal(formatDuration(-10), '00:00');
 });
 
+test('parseDuration accepts valid MM:SS and rejects malformed values', () => {
+  assert.equal(parseDuration('04:32'), 272);
+  assert.equal(parseDuration('0:05'), 5);
+  assert.equal(parseDuration('04:60'), null);
+  assert.equal(parseDuration('abc'), null);
+});
+
 test('formatNumberK formats thousands cleanly', () => {
   assert.equal(formatNumberK(500), '500');
   assert.equal(formatNumberK(12400), '12.4K');
@@ -64,6 +73,13 @@ test('generateWhatsAppMessage builds correct pre-filled Arabic message', () => {
   assert.match(msg, /2026-11-20/);
   assert.match(msg, /مع إضافة زغاريد/);
   assert.match(msg, /https:\/\/orchest\.com\/tracks\/ORC-204/);
+});
+
+test('generateWhatsAppUrl rejects invalid phones and encodes Arabic text', () => {
+  assert.equal(generateWhatsAppUrl('123', 'hello'), '');
+  const url = generateWhatsAppUrl('+967 77 000 0000', 'أهلاً وسهلاً');
+  assert.match(url, /^https:\/\/wa\.me\/967770000000\?text=/);
+  assert.match(url, /%D8%A3/);
 });
 
 test('filterTracks filters by query, category, and rhythm', () => {
@@ -132,3 +148,18 @@ test('exportOrdersToCSV outputs valid CSV with UTF-8 BOM and headers', () => {
   assert.match(csv, /#ORC-204/);
 });
 
+test('exportOrdersToCSV neutralizes spreadsheet formula values', () => {
+  const csv = exportOrdersToCSV([{
+    id: 'ord-2',
+    trackId: 'track-1',
+    trackCode: '#ORC-204',
+    trackTitle: '=HYPERLINK("https://example.com")',
+    clientNames: '@attacker',
+    modificationType: 'تغيير الأسماء فقط',
+    occasionDate: '',
+    timestamp: '2026-10-15 14:00',
+    status: 'جديد',
+  }]);
+  assert.match(csv, /'=HYPERLINK/);
+  assert.match(csv, /'@attacker/);
+});
