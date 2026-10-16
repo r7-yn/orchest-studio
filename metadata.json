@@ -1,0 +1,6 @@
+{
+  "name": "أوركست | Orchest Studio",
+  "description": "منصة أوركست المتخصصة في إنتاج وتنفيذ الزفات الخليجية والشيلات الملكية المخصصة حسب الطلب بالأسماء وبأعلى جودة صوتية.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
